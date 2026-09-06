@@ -32,7 +32,6 @@ const sensitiveTerms = [
   'smut',
   'adult-content',
   'adult content',
-  'mature',
   'erotica',
   'erotic',
   'suggestive',
@@ -93,11 +92,8 @@ function chapterFromText(value: string | null | undefined): string | undefined {
     return undefined
 
   const normalized = normalizeSpaces(value)
-  const explicit = normalized.match(/(?:الفصل|chapter)\s*(?:رقم\s*)?#?\s*([0-9]+(?:\.[0-9]+)?)/i)
-  if (explicit)
-    return explicit[1]
-
-  return undefined
+  const explicit = normalized.match(/(?:الفصل|فصل|chapter)\s*(?:رقم\s*)?#?\s*([0-9]+(?:\.[0-9]+)?)/i)
+  return explicit?.[1]
 }
 
 function cleanSeriesTitle(value: string, site: SiteConfig, chapter?: string): string {
@@ -106,7 +102,7 @@ function cleanSeriesTitle(value: string, site: SiteConfig, chapter?: string): st
     .replace(/\s+(?:Manga|Manhwa)\s+Online.*$/i, '')
     .replace(/\s*\|\s*(?:Team-X|Azora.*|MangaLek.*|مانجا ليك.*|MangaTime.*|مانجا تايم.*|MangaSwan.*|MangaClub.*|Abmics.*|ToonArab.*)$/i, '')
     .replace(/\s*[-–—|]\s*(?:مانجا|مانهوا)\s+مترجمة.*$/i, '')
-    .replace(/\s*(?:الفصل|chapter)\s*(?:رقم\s*)?#?\s*[0-9]+(?:\.[0-9]+)?.*$/i, '')
+    .replace(/\s*[,،-]?\s*(?:الفصل|فصل|chapter)\s*(?:رقم\s*)?#?\s*[0-9]+(?:\.[0-9]+)?.*$/i, '')
     .trim()
 
   if (chapter) {
@@ -120,6 +116,27 @@ function cleanSeriesTitle(value: string, site: SiteConfig, chapter?: string): st
     return ''
 
   return title
+}
+
+function seriesLinkFromPage(): HTMLAnchorElement | undefined {
+  const candidates = [...document.querySelectorAll<HTMLAnchorElement>('a[href]')]
+    .filter((link) => {
+      const href = absoluteUrl(link.getAttribute('href'))
+      if (!href || href === location.href)
+        return false
+      if (link.closest('header, nav, footer, aside, [role="navigation"]'))
+        return false
+
+      try {
+        const path = new URL(href).pathname.toLowerCase()
+        return /\/(?:series|manga|manhwa|manhua|webtoon|comic|abmic)\//.test(path)
+      }
+      catch {
+        return false
+      }
+    })
+
+  return candidates.find(link => normalizeSpaces(link.textContent ?? '').length > 2) ?? candidates[0]
 }
 
 function detectPageInfo(site: SiteConfig): PageInfo {
@@ -161,7 +178,10 @@ function detectPageInfo(site: SiteConfig): PageInfo {
 
   if (site.name === 'MangaTime' && ['manga', 'manhwa'].includes(lower[0] ?? '') && parts[1]) {
     const chapterIndex = lower.indexOf('chapter')
-    chapter ??= chapterIndex >= 0 ? parts[chapterIndex + 1]?.match(/^([0-9]+(?:\.[0-9]+)?)$/)?.[1] : undefined
+    chapter ??= chapterIndex >= 0
+      ? parts[chapterIndex + 1]?.match(/^([0-9]+(?:\.[0-9]+)?)$/)?.[1]
+      : undefined
+
     return {
       kind: chapter ? 'chapter' : 'series',
       chapter,
@@ -216,14 +236,22 @@ function detectPageInfo(site: SiteConfig): PageInfo {
     }
   }
 
-  if (chapter)
-    return { kind: 'chapter', chapter }
+  if (chapter) {
+    const link = seriesLinkFromPage()
+    return {
+      kind: 'chapter',
+      chapter,
+      seriesUrl: absoluteUrl(link?.getAttribute('href')),
+    }
+  }
 
   return { kind: 'browse' }
 }
 
 function getSiteIcon(): string {
-  const icon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"], link[rel="icon"], link[rel="shortcut icon"]')
+  const icon = document.querySelector<HTMLLinkElement>(
+    'link[rel="apple-touch-icon"], link[rel="icon"], link[rel="shortcut icon"]',
+  )
   return absoluteUrl(icon?.href) ?? `${location.origin}/favicon.ico`
 }
 
@@ -257,27 +285,52 @@ function getCover(doc: Document, base: string): string | undefined {
       return image
   }
 
-  const metaImage = doc.querySelector<HTMLMetaElement>('meta[property="og:image"], meta[name="twitter:image"]')?.content
+  const metaImage = doc.querySelector<HTMLMetaElement>(
+    'meta[property="og:image"], meta[name="twitter:image"]',
+  )?.content
   return absoluteUrl(metaImage, base)
+}
+
+function isNavigationElement(element: Element): boolean {
+  return Boolean(element.closest(
+    'header, nav, footer, aside, [role="navigation"], .menu, .menus, .navbar, .sidebar, .side-bar',
+  ))
 }
 
 function classifierText(doc: Document): string {
   const pieces: string[] = []
-  const selectors = [
-    'meta[name="keywords"]',
-    'meta[property="article:tag"]',
-    'a[href*="genre" i]',
-    'a[href*="tag" i]',
-    'a[href*="category" i]',
-    '[class*="genre" i]',
-    '[class*="tag" i]',
-    '[class*="categor" i]',
+
+  for (const meta of doc.querySelectorAll<HTMLMetaElement>(
+    'meta[name="keywords"], meta[property="article:tag"]',
+  )) {
+    pieces.push(meta.content)
+  }
+
+  const tagSelectors = [
+    'a[href*="/genre/" i]',
+    'a[href*="/genres/" i]',
+    'a[href*="/tag/" i]',
+    'a[href*="/tags/" i]',
+    'a[href*="/category/" i]',
+    '[class~="genre" i]',
+    '[class~="genres" i]',
+    '[class~="tag" i]',
+    '[class~="tags" i]',
+    '[class*="manga-genres" i]',
+    '[class*="post-tags" i]',
+    '[class*="series-tags" i]',
   ]
 
-  for (const element of doc.querySelectorAll<HTMLElement>(selectors.join(','))) {
-    if (element instanceof HTMLMetaElement)
-      pieces.push(element.content)
-    else pieces.push(element.textContent ?? '', element.getAttribute('href') ?? '')
+  for (const element of doc.querySelectorAll<HTMLElement>(tagSelectors.join(','))) {
+    if (isNavigationElement(element))
+      continue
+
+    pieces.push(element.textContent ?? '', element.getAttribute('href') ?? '')
+  }
+
+  for (const script of doc.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')) {
+    if (script.textContent && script.textContent.length < 100_000)
+      pieces.push(script.textContent)
   }
 
   return pieces.join(' ').toLowerCase()
@@ -326,6 +379,7 @@ function getSeriesTitle(site: SiteConfig, info: PageInfo, seriesDoc?: Document):
       return linkedTitle
   }
 
+  const linkedTitle = cleanSeriesTitle(seriesLinkFromPage()?.textContent ?? '', site, info.chapter)
   const docs = [seriesDoc, document].filter(Boolean) as Document[]
   const selectors = [
     '[class*="series-title" i]',
@@ -341,7 +395,11 @@ function getSeriesTitle(site: SiteConfig, info: PageInfo, seriesDoc?: Document):
         return candidate
     }
 
-    const ogTitle = cleanSeriesTitle(doc.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content ?? '', site, info.chapter)
+    const ogTitle = cleanSeriesTitle(
+      doc.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content ?? '',
+      site,
+      info.chapter,
+    )
     if (ogTitle)
       return ogTitle
 
@@ -349,6 +407,9 @@ function getSeriesTitle(site: SiteConfig, info: PageInfo, seriesDoc?: Document):
     if (pageTitle)
       return pageTitle
   }
+
+  if (linkedTitle)
+    return linkedTitle
 
   return info.seriesSlug ? slugToTitle(info.seriesSlug.replace(/-s$/i, '')) : 'مانجا / مانهوا'
 }
@@ -401,7 +462,10 @@ presence.on('UpdateData', async () => {
 
   if (info.kind === 'chapter') {
     presenceData.details = `يقرا ${seriesTitle}`
-    presenceData.state = info.chapter ? `الفصل ${info.chapter} • ${site.name}` : `يقرا فصلا • ${site.name}`
+    presenceData.state = info.chapter
+      ? `الفصل ${info.chapter} • ${site.name}`
+      : `يقرا فصلا • ${site.name}`
+
     if (showTimestamp)
       presenceData.startTimestamp = readingTimestamp
     if (showButtons)
@@ -410,6 +474,7 @@ presence.on('UpdateData', async () => {
   else if (info.kind === 'series') {
     presenceData.details = `يتصفح ${seriesTitle}`
     presenceData.state = site.name
+
     if (showTimestamp)
       presenceData.startTimestamp = readingTimestamp
     if (showButtons)
@@ -419,6 +484,7 @@ presence.on('UpdateData', async () => {
     presenceData.details = `يتصفح ${site.name}`
     presenceData.state = 'مانجا ومانهوا عربية'
     presenceData.largeImageKey = siteIcon
+
     if (showTimestamp)
       presenceData.startTimestamp = browsingTimestamp
   }
