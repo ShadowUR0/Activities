@@ -1,6 +1,5 @@
 const presence = new Presence({
-  // Replace this with the Discord Application ID created for "Arabic Manga".
-  clientId: '000000000000000000',
+  clientId: '1546241117907845120',
 })
 
 interface SiteConfig {
