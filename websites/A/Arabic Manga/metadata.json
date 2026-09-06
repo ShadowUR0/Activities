@@ -3,14 +3,9 @@
   "apiVersion": 1,
   "author": {
     "name": "ShadowUR0",
-    "id": "843784503167680512"
+    "id": "000000000000000000"
   },
   "service": "Arabic Manga",
-  "altnames": [
-    "Arabic Manga & Manhwa",
-    "مانجا عربية",
-    "مانهوا عربية"
-  ],
   "description": {
     "en": "A unified activity for supported Arabic manga and manhwa reading websites, with chapter details, covers, site branding, and sensitive-content filtering.",
     "ar": "نشاط موحد لمواقع قراءة المانجا والمانهوا العربية المدعومة، يعرض العمل والفصل والغلاف وهوية الموقع مع فلترة المحتوى الحساس."
